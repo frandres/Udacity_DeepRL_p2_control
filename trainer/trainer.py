@@ -44,6 +44,7 @@ class AgentTrainer():
 
         for i_episode in range(1, self.max_n_episodes+1):
             env_info = self.env.reset(train_mode=True)[self.brain_name]
+            agent.reset()
             # get the current state
             state = env_info.vector_observations[0]
 

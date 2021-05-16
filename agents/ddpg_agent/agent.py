@@ -140,7 +140,7 @@ class Agent():
             state (array_like): current state
             training (bool): whether the agent is training or not.
         """
-        state = torch.from_numpy(state).float().unsqueeze(0).to(device)
+        state = torch.from_numpy(state).float().to(device)
 
         self.actor_local.eval() 
         with torch.no_grad():
@@ -156,6 +156,8 @@ class Agent():
         self.noise.reset()
 
     def learn(self):
+
+        self.actor_local.train() 
 
         # 1) Sample experience tuples.
 
@@ -202,7 +204,7 @@ class Agent():
 
         local_actions = self.actor_local.forward(states)
 
-        loss = -self.critic_local.forward(states,local_actions).mean()
+        loss = (-self.critic_local.forward(states,local_actions)*bias_correction).mean()
         loss.backward()
         self.actor_optimizer.step()
 
