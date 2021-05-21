@@ -42,9 +42,7 @@ class ActorNetwork(nn.Module):
         self.batch_normalization = nn.ModuleList([nn.BatchNorm1d(layer.in_features) for layer in self.hidden_layers])
 
         for layer in self.hidden_layers:
-            print(layer.weight.data)
             layer.weight.data.uniform_(*hidden_init(layer))
-            print(layer.weight.data)
 
         self.output = nn.Linear(hidden_layers[-1], action_size)
         self.output_batch_normalization = nn.BatchNorm1d(hidden_layers[-1])
@@ -55,9 +53,9 @@ class ActorNetwork(nn.Module):
         
         x = state
         for linear,batch_norm in zip(self.hidden_layers,self.batch_normalization):
-            x = F.relu(batch_norm(linear(x)))
+            x = F.relu(linear(batch_norm(x)))
 
-        x = self.output(x)
+        x = self.output(self.output_batch_normalization(x))
 
         return  torch.tanh(x)
 
@@ -95,20 +93,20 @@ class CriticNetwork(nn.Module):
         self.seed = torch.manual_seed(seed)
 
     
-        self.state_hidden_layers = self.build_leg(state_size, hidden_layer_state_leg)
-        self.action_hidden_layers = self.build_leg(action_size, hidden_layer_actions_leg)
+        self.state_hidden_layers,self.state_batch_normalization = self.build_leg(state_size, hidden_layer_state_leg)
+        self.action_hidden_layers,self.action_batch_normalization = self.build_leg(action_size, hidden_layer_actions_leg)
 
         action_size_output = hidden_layer_actions_leg[-1] if len(hidden_layer_actions_leg)>0 else action_size
         state_size_output = hidden_layer_state_leg[-1] if len(hidden_layer_state_leg)>0 else state_size
         
-        self.head_layers = self.build_leg(action_size_output+state_size_output, hidden_layer_head)
+        self.head_layers,self.head_batch_normalization = self.build_leg(action_size_output+state_size_output, hidden_layer_head)
         # Add a variable number of more hidden layers
         assert len(hidden_layer_head)>0
         self.output = nn.Linear(hidden_layer_head[-1], 1)
 
     def build_leg(self,input_size:int,hidden_layers:List[int]):
         if len(hidden_layers) ==0:
-            return []
+            return [],[]
 
         hidden_layers_list = nn.ModuleList(
             [nn.Linear(input_size, hidden_layers[0])])
@@ -117,20 +115,25 @@ class CriticNetwork(nn.Module):
         hidden_layers_list.extend([nn.Linear(h1, h2)
                               for h1, h2 in layer_sizes])
 
-        return hidden_layers_list
+        for layer in hidden_layers_list:
+            layer.weight.data.uniform_(*hidden_init(layer))
+
+        batch_normalization = nn.ModuleList([nn.BatchNorm1d(layer.in_features) for layer in hidden_layers_list])
+
+        return hidden_layers_list,batch_normalization
 
     def forward(self, state,action):
         """Build a network that maps state -> action values."""
-        for linear in self.state_hidden_layers:
-            state = F.relu(linear(state))
+        for linear,batch_norm in zip(self.state_hidden_layers,self.state_batch_normalization):
+            state = F.relu(linear(batch_norm(state)))
 
-        for linear in self.action_hidden_layers:
-            action = F.relu(linear(action))
+        for linear,batch_norm in zip(self.action_hidden_layers,self.action_batch_normalization):
+            action = F.relu(linear(batch_norm(action)))
 
         state_action = torch.cat((state,action),dim=-1)
 
-        for linear in self.head_layers:
-            state_action = F.relu(linear(state_action))
+        for linear,batch_norm in zip(self.head_layers,self.head_batch_normalization):
+            state_action = F.relu(linear(batch_norm(state_action)))
         return self.output(state_action)
 
         
