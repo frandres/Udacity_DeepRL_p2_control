@@ -156,7 +156,7 @@ class Agent():
 
         self.actor_local.eval() 
         with torch.no_grad():
-            output_actions = self.actor_local.forward(state.unsqueeze(0)).detach().numpy()
+            output_actions = self.actor_local.forward(state.unsqueeze(0)).detach().cpu().numpy()
 
         if training:
             self.beta = next(self.beta_gen)
