@@ -4,17 +4,19 @@ from collections import namedtuple
 
 import copy
 
-from .models import ActorNetwork,CriticNetwork
-
+#from .models import ActorNetwork,CriticNetwork
+from .models_baseline_diff_arch import Actor,Critic
 import torch
 import torch.optim as optim
 from torch import nn
 
-BUFFER_SIZE = int(1e5)  # replay buffer size
+BUFFER_SIZE = int(1e6)  # replay buffer size
 BATCH_SIZE = 64         # default minibatch size
 GAMMA = 0.99            # discount factor
 TAU = 1e-3              # for soft update of target parameters
-UPDATE_EVERY = 4        # how often to update the network
+UPDATE_EVERY = 16       # how often to update the network
+LR_ACTOR = 1e-4         # learning rate of the actor 
+LR_CRITIC = 1e-3        # learning rate of the critic
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
@@ -65,31 +67,41 @@ class Agent():
                                             factor=hyperparams['beta_factor'])
         # Actor/Critic
         
-        self.actor_target = ActorNetwork(state_size,
-                                         action_size,
-                                         hyperparams['actor_topology'],
-                                         seed).to(device)
+        # self.actor_target = ActorNetwork(state_size,
+        #                                  action_size,
+        #                                  hyperparams['actor_topology'],
+        #                                  seed).to(device)
 
-        self.actor_local = ActorNetwork(state_size,
-                                        action_size,
-                                        hyperparams['actor_topology'],
-                                        seed).to(device)
+        # self.actor_local = ActorNetwork(state_size,
+        #                                 action_size,
+        #                                 hyperparams['actor_topology'],
+        #                                 seed).to(device)
 
-        self.critic_target = CriticNetwork(state_size=state_size,
-                                           action_size=action_size,
-                                           hidden_layer_state_leg = hyperparams['critic_state_leg_topology'],
-                                           hidden_layer_actions_leg = hyperparams['critic_action_leg_topology'],
-                                           hidden_layer_head = hyperparams['critic_state_action_leg_topology'],
-                                           seed=seed).to(device)
-        self.critic_local = CriticNetwork(state_size=state_size,
-                                           action_size=action_size,
-                                           hidden_layer_state_leg = hyperparams['critic_state_leg_topology'],
-                                           hidden_layer_actions_leg = hyperparams['critic_action_leg_topology'],
-                                           hidden_layer_head = hyperparams['critic_state_action_leg_topology'],
-                                           seed=seed).to(device)
+        # self.critic_target = CriticNetwork(state_size=state_size,
+        #                                    action_size=action_size,
+        #                                    hidden_layer_state_leg = hyperparams['critic_state_leg_topology'],
+        #                                    hidden_layer_actions_leg = hyperparams['critic_action_leg_topology'],
+        #                                    hidden_layer_head = hyperparams['critic_state_action_leg_topology'],
+        #                                    seed=seed).to(device)
+        # self.critic_local = CriticNetwork(state_size=state_size,
+        #                                    action_size=action_size,
+        #                                    hidden_layer_state_leg = hyperparams['critic_state_leg_topology'],
+        #                                    hidden_layer_actions_leg = hyperparams['critic_action_leg_topology'],
+        #                                    hidden_layer_head = hyperparams['critic_state_action_leg_topology'],
+        #                                    seed=seed).to(device)
 
-        self.actor_optimizer = optim.Adam(self.actor_local.parameters(), lr=hyperparams['actor_lr'])
-        self.critic_optimizer = optim.Adam(self.critic_local.parameters(), lr=hyperparams['critic_lr'])
+        # Actor Network (w/ Target Network)
+        self.actor_local = Actor(state_size, action_size, seed).to(device)
+        self.actor_target = Actor(state_size, action_size, seed).to(device)
+        self.actor_optimizer = optim.Adam(self.actor_local.parameters(), lr=LR_ACTOR)
+
+        # Critic Network (w/ Target Network)
+        self.critic_local = Critic(state_size, action_size, seed).to(device)
+        self.critic_target = Critic(state_size, action_size, seed).to(device)
+        self.critic_optimizer = optim.Adam(self.critic_local.parameters(), lr=LR_CRITIC, weight_decay=0)
+
+        # self.actor_optimizer = optim.Adam(self.actor_local.parameters(), lr=hyperparams['actor_lr'])
+        # self.critic_optimizer = optim.Adam(self.critic_local.parameters(), lr=hyperparams['critic_lr'])
 
         # Replay memory
         self.batch_size = hyperparams.get('batch_size', BATCH_SIZE)
@@ -125,10 +137,10 @@ class Agent():
 
         # Learn every UPDATE_EVERY time steps.
         self.t_step = (self.t_step + 1) % UPDATE_EVERY
-        if self.t_step == 0:
-            # If enough samples are available in memory, get random subset and learn
-            if len(self.memory) > self.batch_size:
-                self.learn()
+
+        # If enough samples are available in memory, get random subset and learn
+        if len(self.memory) > self.batch_size:
+            self.learn()
 
     def act(self,
             state: np.array,
@@ -144,7 +156,7 @@ class Agent():
 
         self.actor_local.eval() 
         with torch.no_grad():
-            output_actions = self.actor_local.forward(state).detach().numpy()
+            output_actions = self.actor_local.forward(state.unsqueeze(0)).detach().numpy()
 
         if training:
             self.beta = next(self.beta_gen)
@@ -209,8 +221,9 @@ class Agent():
         self.actor_optimizer.step()
 
         # ------------------- update target network ------------------- #
-        self.soft_update(self.actor_local, self.actor_target, TAU)
-        self.soft_update(self.critic_local, self.critic_target, TAU)
+        if self.t_step == 0:
+            self.soft_update(self.actor_local, self.actor_target, TAU)
+            self.soft_update(self.critic_local, self.critic_target, TAU)
 
     def soft_update(self,
                     local_model: nn.Module,
@@ -236,10 +249,11 @@ class Agent():
 class OUNoise:
     """Ornstein-Uhlenbeck process."""
 
-    def __init__(self, size, seed, mu=0., theta=0.15, sigma=0.2):
+    def __init__(self, size, seed, mu=0., starting_theta=0.3, sigma=0.2):
         """Initialize parameters and noise process."""
         self.mu = mu * np.ones(size)
-        self.theta = theta
+        self.theta = starting_theta
+        self.theta_gen = annealing_generator(starting_theta,0.05,0.9995)
         self.sigma = sigma
         self.seed = random.seed(seed)
         self.reset()
@@ -247,6 +261,8 @@ class OUNoise:
     def reset(self):
         """Reset the internal state (= noise) to mean (mu)."""
         self.state = copy.copy(self.mu)
+        self.theta = next(self.theta_gen)
+        print('theta:',self.theta)
 
     def sample(self):
         """Update internal state and return it as a noise sample."""
@@ -405,16 +421,19 @@ class PrioritizedReplayBuffer:
             priorities.append(priority)
             values.append(value)
 
-        states = torch.from_numpy(
-            np.vstack([e.state for e in experiences if e is not None])).float().to(device)
-        actions = torch.from_numpy(
-            np.vstack([e.action for e in experiences if e is not None])).float().to(device)
-        rewards = torch.from_numpy(
-            np.vstack([e.reward for e in experiences if e is not None])).float().to(device)
-        next_states = torch.from_numpy(np.vstack(
-            [e.next_state for e in experiences if e is not None])).float().to(device)
-        dones = torch.from_numpy(np.vstack(
-            [e.done for e in experiences if e is not None]).astype(np.uint8)).float().to(device)
+        try:
+            states = torch.from_numpy(
+                np.vstack([e.state for e in experiences if e is not None])).float().to(device)
+            actions = torch.from_numpy(
+                np.vstack([e.action for e in experiences if e is not None])).float().to(device)
+            rewards = torch.from_numpy(
+                np.vstack([e.reward for e in experiences if e is not None])).float().to(device)
+            next_states = torch.from_numpy(np.vstack(
+                [e.next_state for e in experiences if e is not None])).float().to(device)
+            dones = torch.from_numpy(np.vstack(
+                [e.done for e in experiences if e is not None]).astype(np.uint8)).float().to(device)
+        except:
+            import pdb;pdb.set_trace()
 
         return indices, torch.Tensor(priorities).to(device), (states, actions, rewards, next_states, dones)
 
