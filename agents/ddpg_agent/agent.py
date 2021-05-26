@@ -439,7 +439,7 @@ class PrioritizedReplayBuffer:
 
     def update_batches(self, indices, errors):
 
-        for index, error in zip(indices, errors.detach().numpy()):
+        for index, error in zip(indices, errors.detach().cpu().numpy()):
             self.tree.update(
                 index, (abs(error)+self.per_epsilon)**self.per_alpha)
 
