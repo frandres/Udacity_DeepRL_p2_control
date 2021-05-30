@@ -16,9 +16,9 @@ BUFFER_SIZE = int(1e6)  # replay buffer size
 BATCH_SIZE = 128         # minibatch size
 GAMMA = 0.99            # discount factor
 TAU = 1e-3              # for soft update of target parameters
-UPDATE_EVERY = 16       # how often to update the network
-LR_ACTOR = 1e-4         # learning rate of the actor 
-LR_CRITIC = 1e-3        # learning rate of the critic
+UPDATE_EVERY = 4       # how often to update the network
+LR_ACTOR = 2e-4         # learning rate of the actor 
+LR_CRITIC = 2e-3        # learning rate of the critic
 WEIGHT_DECAY = 0        # L2 weight decay
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
@@ -214,7 +214,7 @@ class Agent():
         
         self.critic_optimizer.zero_grad()
         critic_loss.backward()
-        # torch.nn.utils.clip_grad_norm(self.critic_local.parameters(), 1)
+        torch.nn.utils.clip_grad_norm(self.critic_local.parameters(), 1)
         self.critic_optimizer.step()
 
         # 3) Optimize the actor.
@@ -256,11 +256,11 @@ class Agent():
 class OUNoise:
     """Ornstein-Uhlenbeck process."""
 
-    def __init__(self, size, seed, mu=0., starting_theta=0.2, sigma=0.2):
+    def __init__(self, size, seed, mu=0., starting_theta=0.15, sigma=0.2):
         """Initialize parameters and noise process."""
         self.mu = mu * np.ones(size)
         self.theta = starting_theta
-        self.theta_gen = annealing_generator(starting_theta,0.15,0.999)
+        # self.theta_gen = annealing_generator(starting_theta,0.15,0.999)
         self.sigma = sigma
         self.seed = random.seed(seed)
         self.reset()
@@ -268,7 +268,7 @@ class OUNoise:
     def reset(self):
         """Reset the internal state (= noise) to mean (mu)."""
         self.state = copy.copy(self.mu)
-        self.theta = next(self.theta_gen)
+        # self.theta = next(self.theta_gen)
         print('theta:',self.theta)
 
     def sample(self):
