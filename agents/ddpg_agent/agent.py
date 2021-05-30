@@ -256,7 +256,7 @@ class Agent():
 class OUNoise:
     """Ornstein-Uhlenbeck process."""
 
-    def __init__(self, size, seed, mu=0., starting_theta=0.15, sigma=0.2):
+    def __init__(self, size, seed, mu=0., starting_theta=0.20, sigma=0.2):
         """Initialize parameters and noise process."""
         self.mu = mu * np.ones(size)
         self.theta = starting_theta
