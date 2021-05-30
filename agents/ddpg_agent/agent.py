@@ -1,22 +1,25 @@
 import numpy as np
 import random
-from collections import namedtuple
+from collections import namedtuple, deque
 
 import copy
 
 #from .models import ActorNetwork,CriticNetwork
-from .models_baseline_diff_arch import Actor,Critic
+# from .models_baseline_diff_arch import Actor,Critic
+from .models_baseline_bnorm import Actor,Critic
 import torch
+import torch.nn.functional as F
 import torch.optim as optim
 from torch import nn
 
 BUFFER_SIZE = int(1e6)  # replay buffer size
-BATCH_SIZE = 64         # default minibatch size
+BATCH_SIZE = 128         # minibatch size
 GAMMA = 0.99            # discount factor
 TAU = 1e-3              # for soft update of target parameters
 UPDATE_EVERY = 16       # how often to update the network
 LR_ACTOR = 1e-4         # learning rate of the actor 
 LR_CRITIC = 1e-3        # learning rate of the critic
+WEIGHT_DECAY = 0        # L2 weight decay
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
@@ -98,21 +101,23 @@ class Agent():
         # Critic Network (w/ Target Network)
         self.critic_local = Critic(state_size, action_size, seed).to(device)
         self.critic_target = Critic(state_size, action_size, seed).to(device)
-        self.critic_optimizer = optim.Adam(self.critic_local.parameters(), lr=LR_CRITIC, weight_decay=0)
+        self.critic_optimizer = optim.Adam(self.critic_local.parameters(), lr=LR_CRITIC, weight_decay=WEIGHT_DECAY)
 
         # self.actor_optimizer = optim.Adam(self.actor_local.parameters(), lr=hyperparams['actor_lr'])
         # self.critic_optimizer = optim.Adam(self.critic_local.parameters(), lr=hyperparams['critic_lr'])
 
         # Replay memory
-        self.batch_size = hyperparams.get('batch_size', BATCH_SIZE)
+        self.batch_size = BATCH_SIZE
 
-        self.memory = PrioritizedReplayBuffer(BUFFER_SIZE,
-                                              self.batch_size,
-                                              seed,
-                                              per_epsilon=hyperparams.get(
-                                                  'per_epsilon'),
-                                              per_alpha=hyperparams.get('per_alpha'))
+        # self.memory = PrioritizedReplayBuffer(BUFFER_SIZE,
+        #                                       self.batch_size,
+        #                                       seed,
+        #                                       per_epsilon=hyperparams.get(
+        #                                           'per_epsilon'),
+        #                                       per_alpha=hyperparams.get('per_alpha'))
 
+        self.memory = ReplayBuffer(action_size, BUFFER_SIZE, BATCH_SIZE, seed)
+    
         # Initialize time step (for updating every UPDATE_EVERY steps)
         self.t_step = 0
 
@@ -156,8 +161,9 @@ class Agent():
 
         self.actor_local.eval() 
         with torch.no_grad():
-            output_actions = self.actor_local.forward(state.unsqueeze(0)).detach().cpu().numpy()
-
+            output_actions = self.actor_local(state).cpu().data.numpy()
+            #output_actions = self.actor_local.forward(state.unsqueeze(0)).detach().cpu().numpy()
+        self.actor_local.train()
         if training:
             self.beta = next(self.beta_gen)
             output_actions += self.noise.sample()
@@ -173,57 +179,59 @@ class Agent():
 
         # 1) Sample experience tuples.
 
-        memory_indices, priorities, experiences = self.memory.sample()
+        #memory_indices, priorities, experiences = self.memory.sample()
+        experiences = self.memory.sample()
         states, mem_actions, rewards, next_states, dones = experiences
 
         # 2) Optimize the critic.
         
-        self.critic_optimizer.zero_grad()
+        
 
         # 2.1 Use the actor target network for estimating the actions 
         # and calculate their value using the critic local network.
 
-        critic_output = self.critic_local.forward(states,mem_actions)
+        critic_output = self.critic_local(states,mem_actions)
 
         # 2.2 Use the critic target network for using the estimated value.
 
-        with torch.no_grad():
-            target_actions = self.actor_target.forward(next_states)
-
-        self.critic_target.eval()
-        with torch.no_grad():
-            critic_next_action_estimated_values = self.critic_target(next_states,target_actions)
+        actions_next = self.actor_target(next_states)
+        critic_next_action_estimated_values = self.critic_target(next_states,actions_next)
 
         critic_estimated_values=rewards + (1-dones)*self.gamma*critic_next_action_estimated_values
 
-        self.memory.update_batches(memory_indices, (critic_output-critic_estimated_values))
+        critic_loss = F.mse_loss(critic_output, critic_estimated_values)
+        # self.memory.update_batches(memory_indices, (critic_output-critic_estimated_values))
 
-        # 2.2) Prioritized replay bias adjustment.
+        # # 2.2) Prioritized replay bias adjustment.
 
-        beta = self.beta
+        # beta = self.beta
 
-        bias_correction = ((1/len(self.memory))*(1/priorities))**beta
-        bias_correction = bias_correction/torch.max(bias_correction)
-
-        loss = (self.critic_criterion(critic_output, critic_estimated_values)*bias_correction).mean()
-
-        loss.backward()
+        # bias_correction = ((len(self.memory)/len(self.memory))*(1/priorities))**beta
+        # # print('Bias correction',priorities,beta,bias_correction,bias_correction/torch.max(bias_correction))
+        
+        # bias_correction = bias_correction/torch.max(bias_correction)
+        # critic_loss = (self.critic_criterion(critic_output, critic_estimated_values)*bias_correction).mean()
+        
+        self.critic_optimizer.zero_grad()
+        critic_loss.backward()
+        # torch.nn.utils.clip_grad_norm(self.critic_local.parameters(), 1)
         self.critic_optimizer.step()
 
         # 3) Optimize the actor.
 
+        
+
+        actions_pred = self.actor_local(states)
+        actor_loss = -self.critic_local(states, actions_pred).mean()
         self.actor_optimizer.zero_grad()
-
-        local_actions = self.actor_local.forward(states)
-
-        loss = (-self.critic_local.forward(states,local_actions)*bias_correction).mean()
-        loss.backward()
+        actor_loss.backward()
         self.actor_optimizer.step()
 
         # ------------------- update target network ------------------- #
         if self.t_step == 0:
-            self.soft_update(self.actor_local, self.actor_target, TAU)
             self.soft_update(self.critic_local, self.critic_target, TAU)
+            self.soft_update(self.actor_local, self.actor_target, TAU)
+            
 
     def soft_update(self,
                     local_model: nn.Module,
@@ -243,17 +251,16 @@ class Agent():
             tau (float): interpolation parameter 
         """
         for target_param, local_param in zip(target_model.parameters(), local_model.parameters()):
-            target_param.data.copy_(
-                tau*local_param.data + (1.0-tau)*target_param.data)
+            target_param.data.copy_(tau*local_param.data + (1.0-tau)*target_param.data)
 
 class OUNoise:
     """Ornstein-Uhlenbeck process."""
 
-    def __init__(self, size, seed, mu=0., starting_theta=0.3, sigma=0.2):
+    def __init__(self, size, seed, mu=0., starting_theta=0.2, sigma=0.2):
         """Initialize parameters and noise process."""
         self.mu = mu * np.ones(size)
         self.theta = starting_theta
-        self.theta_gen = annealing_generator(starting_theta,0.05,0.9995)
+        self.theta_gen = annealing_generator(starting_theta,0.15,0.999)
         self.sigma = sigma
         self.seed = random.seed(seed)
         self.reset()
@@ -366,6 +373,42 @@ class SumTree(object):
         """Return the current size of internal memory."""
         return np.sum(~(self.tree[-self.capacity:] == 0))
 
+class ReplayBuffer:
+    """Fixed-size buffer to store experience tuples."""
+
+    def __init__(self, action_size, buffer_size, batch_size, seed):
+        """Initialize a ReplayBuffer object.
+        Params
+        ======
+            buffer_size (int): maximum size of buffer
+            batch_size (int): size of each training batch
+        """
+        self.action_size = action_size
+        self.memory = deque(maxlen=buffer_size)  # internal memory (deque)
+        self.batch_size = batch_size
+        self.experience = namedtuple("Experience", field_names=["state", "action", "reward", "next_state", "done"])
+        self.seed = random.seed(seed)
+    
+    def add(self, state, action, reward, next_state, done):
+        """Add a new experience to memory."""
+        e = self.experience(state, action, reward, next_state, done)
+        self.memory.append(e)
+    
+    def sample(self):
+        """Randomly sample a batch of experiences from memory."""
+        experiences = random.sample(self.memory, k=self.batch_size)
+
+        states = torch.from_numpy(np.vstack([e.state for e in experiences if e is not None])).float().to(device)
+        actions = torch.from_numpy(np.vstack([e.action for e in experiences if e is not None])).float().to(device)
+        rewards = torch.from_numpy(np.vstack([e.reward for e in experiences if e is not None])).float().to(device)
+        next_states = torch.from_numpy(np.vstack([e.next_state for e in experiences if e is not None])).float().to(device)
+        dones = torch.from_numpy(np.vstack([e.done for e in experiences if e is not None]).astype(np.uint8)).float().to(device)
+
+        return (states, actions, rewards, next_states, dones)
+
+    def __len__(self):
+        """Return the current size of internal memory."""
+        return len(self.memory)
 
 class PrioritizedReplayBuffer:
     """Fixed-size buffer to store experience tuples.
@@ -391,7 +434,7 @@ class PrioritizedReplayBuffer:
         self.experience = namedtuple("Experience", field_names=[
                                      "state", "action", "reward", "next_state", "done"])
         self.seed = random.seed(seed)
-        self.per_epsilon = per_epsilon or 0.0001
+        self.per_epsilon = per_epsilon or 0.001
         self.per_alpha = per_alpha or 0
 
     def add(self, state, action, reward, next_state, done):
@@ -401,6 +444,7 @@ class PrioritizedReplayBuffer:
             self.per_epsilon  # TODO use clipped abs error?
         if maximum_priority == 0:
             maximum_priority = 1
+        # print(maximum_priority)
         self.tree.add(maximum_priority, e)
 
     def sample(self):
@@ -432,7 +476,7 @@ class PrioritizedReplayBuffer:
                 [e.next_state for e in experiences if e is not None])).float().to(device)
             dones = torch.from_numpy(np.vstack(
                 [e.done for e in experiences if e is not None]).astype(np.uint8)).float().to(device)
-        except:
+        except Exception as e:
             import pdb;pdb.set_trace()
 
         return indices, torch.Tensor(priorities).to(device), (states, actions, rewards, next_states, dones)

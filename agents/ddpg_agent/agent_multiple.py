@@ -15,7 +15,8 @@ BUFFER_SIZE = int(1e6)  # replay buffer size
 BATCH_SIZE = 64         # default minibatch size
 GAMMA = 0.99            # discount factor
 TAU = 1e-3              # for soft update of target parameters
-UPDATE_EVERY = 16       # how often to update the network
+UPDATE_EVERY = 20       # how often to update the network
+LEARN_FOR =10
 LR_ACTOR = 1e-4         # learning rate of the actor 
 LR_CRITIC = 1e-3        # learning rate of the critic
 
@@ -60,10 +61,8 @@ class Agent():
         self.action_size = action_size
         self.seed = random.seed(seed)
         
-        NUM_AGENTS = 20
-
         # Noise process
-        self.noises = [OUNoise(action_size, seed) for _ in range(NUM_AGENTS)]
+        self.noises = [OUNoise(action_size, seed) for _ in range (20)]
 
         self.beta_gen = annealing_generator(start=hyperparams['beta_start'],
                                             end=hyperparams['beta_end'],
@@ -94,16 +93,14 @@ class Agent():
         #                                    seed=seed).to(device)
 
         # Actor Network (w/ Target Network)
-        
-
-        self.actors_local = [Actor(state_size, action_size, seed).to(device) for _ in range(NUM_AGENTS)]
-        self.actors_target = [Actor(state_size, action_size, seed).to(device) for _ in range(NUM_AGENTS)]
-        self.actors_optimizer = [optim.Adam(actor_local.parameters(), lr=LR_ACTOR) for actor_local in self.actors_local]
+        self.actor_local = Actor(state_size, action_size, seed).to(device)
+        self.actor_target = Actor(state_size, action_size, seed).to(device)
+        self.actor_optimizer = optim.Adam(self.actor_local.parameters(), lr=LR_ACTOR)
 
         # Critic Network (w/ Target Network)
-        self.critics_local = [Critic(state_size, action_size, seed).to(device) for _ in range(NUM_AGENTS)]
-        self.critics_target = [Critic(state_size, action_size, seed).to(device) for _ in range(NUM_AGENTS)]
-        self.critics_optimizer = [optim.Adam(critic_local.parameters(), lr=LR_CRITIC, weight_decay=0) for critic_local in self.critics_local]
+        self.critic_local = Critic(state_size, action_size, seed).to(device)
+        self.critic_target = Critic(state_size, action_size, seed).to(device)
+        self.critic_optimizer = optim.Adam(self.critic_local.parameters(), lr=LR_CRITIC, weight_decay=0)
 
         # self.actor_optimizer = optim.Adam(self.actor_local.parameters(), lr=hyperparams['actor_lr'])
         # self.critic_optimizer = optim.Adam(self.critic_local.parameters(), lr=hyperparams['critic_lr'])
@@ -125,6 +122,7 @@ class Agent():
 
         self.gamma = GAMMA
 
+
     def step(self,
              states,
              actions,
@@ -142,24 +140,20 @@ class Agent():
             self.memory.add(state, action, reward, next_state, done)
 
         # Learn every UPDATE_EVERY time steps.
-        self.t_step = (self.t_step + 1) % UPDATE_EVERY
+        self.t_step = (self.t_step + 1) % (UPDATE_EVERY*20)
 
         # If enough samples are available in memory, get random subset and learn
-        if len(self.memory) > self.batch_size:
-            for (actor_local,actor_target,actor_optimizer,
-                critic_local,critic_target,critic_optimizer) in zip(
-                self.actors_local,self.actors_target,self.actors_optimizer,
-                self.critics_local,self.critics_target,self.critics_optimizer  
-                ):
-                self.learn(actor_local = actor_local,
-                        actor_target=actor_target,
-                        actor_optimizer=actor_optimizer,
-                        critic_local=critic_local,
-                        critic_target=critic_target,
-                        critic_optimizer=critic_optimizer)
+        if len(self.memory) > self.batch_size and self.t_step ==0:
+            for _ in range(LEARN_FOR):
+                self.learn()
 
-    def act(self,
-            states: np.array,
+    def act(self,states):
+        # import pdb;pdb.set_trace()
+        return np.array([self.act_state(state,noise) for state,noise in zip(states,self.noises)]).reshape(20,4)
+
+    def act_state(self,
+            state: np.array,
+            noise,
             training: bool = True) -> torch.Tensor:
         """Returns actions for given state as per current policy.
         
@@ -168,46 +162,25 @@ class Agent():
             state (array_like): current state
             training (bool): whether the agent is training or not.
         """
-        actions = []
-        for actor_local,state,noise in zip(self.actors_local,states,self.noises):
-            state = torch.from_numpy(state).float().to(device)
+        state = torch.from_numpy(state).float().to(device)
 
-            actor_local.eval() 
-            with torch.no_grad():
-                output_actions = actor_local.forward(state.unsqueeze(0)).detach().cpu().numpy()
-
-            if training:
-                output_actions += noise.sample()
-            
-            actions.append(np.clip(output_actions,-1,1))
+        self.actor_local.eval() 
+        with torch.no_grad():
+            output_actions = self.actor_local.forward(state.unsqueeze(0)).detach().cpu().numpy()
 
         if training:
-                self.beta = next(self.beta_gen)
-        # import pdb;pdb.set_trace()
-        return np.array(actions).reshape(20,4)
+            self.beta = next(self.beta_gen)
+            output_actions += noise.sample()
+        
+        return np.clip(output_actions,-1,1)
         
     def reset(self):
         for noise in self.noises:
             noise.reset()
 
-    def learn(self,
-              actor_local = None,
-              actor_target = None,
-              actor_optimizer=None,
-              critic_local = None,
-              critic_target = None,
-              critic_optimizer=None):
+    def learn(self):
 
-        actor_local = actor_local or self.actor_local
-        actor_target = actor_target or self.actor_target
-        actor_optimizer =actor_optimizer or self.actor_optimizer
-
-        critic_local = critic_local or self.critic_local
-        critic_target = critic_target or self.critic_target
-        critic_optimizer =critic_optimizer or self.critic_optimizer
-
-
-        actor_local.train() 
+        self.actor_local.train() 
 
         # 1) Sample experience tuples.
 
@@ -216,21 +189,21 @@ class Agent():
 
         # 2) Optimize the critic.
         
-        critic_optimizer.zero_grad()
+        self.critic_optimizer.zero_grad()
 
         # 2.1 Use the actor target network for estimating the actions 
         # and calculate their value using the critic local network.
 
-        critic_output = critic_local.forward(states,mem_actions)
+        critic_output = self.critic_local.forward(states,mem_actions)
 
         # 2.2 Use the critic target network for using the estimated value.
 
         with torch.no_grad():
-            target_actions = actor_target.forward(next_states)
+            target_actions = self.actor_target.forward(next_states)
 
         self.critic_target.eval()
         with torch.no_grad():
-            critic_next_action_estimated_values = critic_target(next_states,target_actions)
+            critic_next_action_estimated_values = self.critic_target(next_states,target_actions)
 
         critic_estimated_values=rewards + (1-dones)*self.gamma*critic_next_action_estimated_values
 
@@ -250,23 +223,23 @@ class Agent():
         loss = (self.critic_criterion(critic_output, critic_estimated_values)*bias_correction).mean()
 
         loss.backward()
-        torch.nn.utils.clip_grad_norm(critic_local.parameters(), 1)
-        critic_optimizer.step()
+        torch.nn.utils.clip_grad_norm(self.critic_local.parameters(), 1)
+        self.critic_optimizer.step()
 
         # 3) Optimize the actor.
 
-        actor_optimizer.zero_grad()
+        self.actor_optimizer.zero_grad()
 
         local_actions = self.actor_local.forward(states)
 
         loss = (-self.critic_local.forward(states,local_actions)*bias_correction).mean()
         loss.backward()
-        actor_optimizer.step()
+        self.actor_optimizer.step()
 
         # ------------------- update target network ------------------- #
         if self.t_step == 0:
-            self.soft_update(self.actor_local, actor_target, TAU)
-            self.soft_update(self.critic_local, critic_target, TAU)
+            self.soft_update(self.actor_local, self.actor_target, TAU)
+            self.soft_update(self.critic_local, self.critic_target, TAU)
 
     def soft_update(self,
                     local_model: nn.Module,
@@ -305,7 +278,7 @@ class OUNoise:
         """Reset the internal state (= noise) to mean (mu)."""
         self.state = copy.copy(self.mu)
         self.theta = next(self.theta_gen)
-        print('theta:',self.theta)
+        # print('theta:',self.theta)
 
     def sample(self):
         """Update internal state and return it as a noise sample."""
