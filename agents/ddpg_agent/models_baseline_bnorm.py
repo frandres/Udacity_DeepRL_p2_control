@@ -25,7 +25,7 @@ class Actor(nn.Module):
         super(Actor, self).__init__()
         self.seed = torch.manual_seed(seed)
         self.fc1 = nn.Linear(state_size, fc1_units)
-        self.fc1_batch_normalization = nn.BatchNorm1d(self.fc1.in_features) 
+        self.fc1_batch_normalization = nn.BatchNorm1d(self.fc1_units) 
 
         self.fc2 = nn.Linear(fc1_units, fc2_units)
 
