@@ -96,13 +96,13 @@ class Agent():
         # Actor Network (w/ Target Network)
         self.actor_local = Actor(state_size, action_size, seed).to(device)
         self.actor_target = Actor(state_size, action_size, seed).to(device)
-        self.actor_optimizer = optim.Adam(self.actor_local.parameters(), lr=LR_ACTOR)
-
+        # self.actor_optimizer = optim.Adam(self.actor_local.parameters(), lr=LR_ACTOR)
+        self.actor_optimizer = optim.Adam(self.actor_local.parameters())
         # Critic Network (w/ Target Network)
         self.critic_local = Critic(state_size, action_size, seed).to(device)
         self.critic_target = Critic(state_size, action_size, seed).to(device)
-        self.critic_optimizer = optim.Adam(self.critic_local.parameters(), lr=LR_CRITIC, weight_decay=WEIGHT_DECAY)
-
+        # self.critic_optimizer = optim.Adam(self.critic_local.parameters(), lr=LR_CRITIC, weight_decay=WEIGHT_DECAY)
+        self.critic_optimizer = optim.Adam(self.critic_local.parameters())
         # self.actor_optimizer = optim.Adam(self.actor_local.parameters(), lr=hyperparams['actor_lr'])
         # self.critic_optimizer = optim.Adam(self.critic_local.parameters(), lr=hyperparams['critic_lr'])
 
@@ -260,7 +260,7 @@ class OUNoise:
         """Initialize parameters and noise process."""
         self.mu = mu * np.ones(size)
         self.theta = starting_theta
-        # self.theta_gen = annealing_generator(starting_theta,0.15,0.999)
+        self.theta_gen = annealing_generator(starting_theta,0.15,0.999)
         self.sigma = sigma
         self.seed = random.seed(seed)
         self.reset()
@@ -268,13 +268,13 @@ class OUNoise:
     def reset(self):
         """Reset the internal state (= noise) to mean (mu)."""
         self.state = copy.copy(self.mu)
-        # self.theta = next(self.theta_gen)
+        self.theta = next(self.theta_gen)
         print('theta:',self.theta)
 
     def sample(self):
         """Update internal state and return it as a noise sample."""
         x = self.state
-        dx = self.theta * (self.mu - x) + self.sigma * np.array([random.random() for i in range(len(x))])
+        dx = self.theta * (self.mu - x) + self.sigma * np.array([np.random.randn() for i in range(len(x))])
         self.state = x + dx
         return self.state
 
