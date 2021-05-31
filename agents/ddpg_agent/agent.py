@@ -4,16 +4,14 @@ from collections import namedtuple, deque
 
 import copy
 
-#from .models import ActorNetwork,CriticNetwork
-# from .models_baseline_diff_arch import Actor,Critic
-from .models_baseline_bnorm import Actor,Critic
+from .models import Actor,Critic
 import torch
 import torch.nn.functional as F
 import torch.optim as optim
 from torch import nn
 
 BUFFER_SIZE = int(1e6)  # replay buffer size
-BATCH_SIZE = 128         # minibatch size
+DEFAULT_BATCH_SIZE = 128         # minibatch size
 GAMMA = 0.99            # discount factor
 TAU = 1e-3              # for soft update of target parameters
 UPDATE_EVERY = 4       # how often to update the network
@@ -85,9 +83,9 @@ class Agent():
         self.critic_optimizer = optim.Adam(self.critic_local.parameters())
 
         # Replay memory
-        self.batch_size = BATCH_SIZE
+        self.batch_size = hyperparams.get('batch_size') or DEFAULT_BATCH_SIZE
 
-        self.memory = ReplayBuffer(action_size, BUFFER_SIZE, BATCH_SIZE, seed)
+        self.memory = ReplayBuffer(action_size, BUFFER_SIZE, self.batch_size, seed)
     
         # Initialize time step (for updating every UPDATE_EVERY steps)
         self.t_step = 0
@@ -133,7 +131,6 @@ class Agent():
         self.actor_local.eval() 
         with torch.no_grad():
             output_actions = self.actor_local(state).cpu().data.numpy()
-            #output_actions = self.actor_local.forward(state.unsqueeze(0)).detach().cpu().numpy()
         self.actor_local.train()
         if training:
             self.beta = next(self.beta_gen)
@@ -150,13 +147,10 @@ class Agent():
 
         # 1) Sample experience tuples.
 
-        #memory_indices, priorities, experiences = self.memory.sample()
         experiences = self.memory.sample()
         states, mem_actions, rewards, next_states, dones = experiences
 
         # 2) Optimize the critic.
-        
-        
 
         # 2.1 Use the actor target network for estimating the actions 
         # and calculate their value using the critic local network.
@@ -171,17 +165,6 @@ class Agent():
         critic_estimated_values=rewards + (1-dones)*self.gamma*critic_next_action_estimated_values
 
         critic_loss = F.mse_loss(critic_output, critic_estimated_values)
-        # self.memory.update_batches(memory_indices, (critic_output-critic_estimated_values))
-
-        # # 2.2) Prioritized replay bias adjustment.
-
-        # beta = self.beta
-
-        # bias_correction = ((len(self.memory)/len(self.memory))*(1/priorities))**beta
-        # # print('Bias correction',priorities,beta,bias_correction,bias_correction/torch.max(bias_correction))
-        
-        # bias_correction = bias_correction/torch.max(bias_correction)
-        # critic_loss = (self.critic_criterion(critic_output, critic_estimated_values)*bias_correction).mean()
         
         self.critic_optimizer.zero_grad()
         critic_loss.backward()

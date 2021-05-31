@@ -1,136 +1,94 @@
+import numpy as np
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from typing import List
-import numpy as np
 
 def hidden_init(layer):
     fan_in = layer.weight.data.size()[0]
     lim = 1. / np.sqrt(fan_in)
     return (-lim, lim)
 
-class ActorNetwork(nn.Module):
-    """Actor (Policy) Model.
-       Skeleton adapted from Udacity exercise sample code. 
-       Network that maps state -> action, assuming action 
-       is a continuous value in the [1,1] range.
-    """
+class Actor(nn.Module):
+    """Actor (Policy) Model."""
 
-    def __init__(self,
-                 state_size,
-                 action_size,
-                 hidden_layers,
-                 seed,
-                 ):
+    def __init__(self, state_size, action_size, seed, fc1_units=256, fc2_units=128):
         """Initialize parameters and build model.
         Params
         ======
             state_size (int): Dimension of each state
             action_size (int): Dimension of each action
             seed (int): Random seed
+            fc1_units (int): Number of nodes in first hidden layer
+            fc2_units (int): Number of nodes in second hidden layer
         """
-        super().__init__()
+        super(Actor, self).__init__()
         self.seed = torch.manual_seed(seed)
+        self.fc1 = nn.Linear(state_size, fc1_units)
+        
+        self.fc1_batch_normalization = nn.BatchNorm1d(fc1_units) 
 
-        self.hidden_layers = nn.ModuleList(
-            [nn.Linear(state_size, hidden_layers[0])])
-        # Add a variable number of more hidden layers
-        layer_sizes = zip(hidden_layers[:-1], hidden_layers[1:])
-        self.hidden_layers.extend([nn.Linear(h1, h2)
-                                  for h1, h2 in layer_sizes])
+        self.fc2 = nn.Linear(fc1_units, fc2_units)
 
-        self.batch_normalization = nn.ModuleList([nn.BatchNorm1d(layer.in_features) for layer in self.hidden_layers])
+        self.fc3 = nn.Linear(fc2_units, action_size)
+        # self.fc3_batch_normalization = nn.BatchNorm1d(self.fc3.in_features) 
 
-        for layer in self.hidden_layers:
-            print(layer.weight.data)
-            layer.weight.data.uniform_(*hidden_init(layer))
-            print(layer.weight.data)
+        self.reset_parameters()
 
-        self.output = nn.Linear(hidden_layers[-1], action_size)
-        self.output_batch_normalization = nn.BatchNorm1d(hidden_layers[-1])
-        self.output.weight.data.uniform_(*hidden_init(layer))
-
+    def reset_parameters(self):
+        self.fc1.weight.data.uniform_(*hidden_init(self.fc1))
+        self.fc2.weight.data.uniform_(*hidden_init(self.fc2))
+        self.fc3.weight.data.uniform_(-3e-3, 3e-3)
 
     def forward(self, state):
-        
-        x = state
-        for linear,batch_norm in zip(self.hidden_layers,self.batch_normalization):
-            x = F.relu(batch_norm(linear(x)))
+        """Build an actor (policy) network that maps states -> actions."""
+        x = F.relu(self.fc1(state))
+        if x.dim() ==1:
+            x = x.unsqueeze(0)
+        x = self.fc1_batch_normalization(x)
+        #x = F.relu(self.fc1(state))
+        x = F.relu(self.fc2(x))
+        return F.tanh(self.fc3(x))
 
-        x = self.output(x)
 
-        return  torch.tanh(x)
+class Critic(nn.Module):
+    """Critic (Value) Model."""
 
-class CriticNetwork(nn.Module):
-    """Critic (Value) Model.
-       Skeleton adapted from Udacity exercise sample code. 
-       Network that maps state,action -> value
-    """
-
-    def __init__(self,
-                 state_size:int,
-                 action_size:int,
-                 hidden_layer_state_leg:List[int],
-                 hidden_layer_actions_leg:List[int],
-                 hidden_layer_head:List[int],
-                 seed,
-                 ):
+    def __init__(self, state_size, action_size, seed, fcs1_units=256, fc2_units=128):
         """Initialize parameters and build model.
         Params
         ======
             state_size (int): Dimension of each state
             action_size (int): Dimension of each action
-            hidden_layer_state_leg (List[int]): 
-                A list of hidden layers with the number of neurons in each layer, 
-                for processing the state input.
-            hidden_layer_actions_leg (List[int]): 
-                A list of hidden layers with the number of neurons in each layer, 
-                for processing the action input.
-            hidden_layer_head (List[int]): 
-                A list of hidden layers with the number of neurons in each layer, 
-                for processing the concatenation of the state and actions.
             seed (int): Random seed
+            fcs1_units (int): Number of nodes in the first hidden layer
+            fc2_units (int): Number of nodes in the second hidden layer
         """
-        super().__init__()
+        super(Critic, self).__init__()
         self.seed = torch.manual_seed(seed)
+        self.fcs1 = nn.Linear(state_size, fcs1_units)
+        self.fcs1_batch_normalization = nn.BatchNorm1d(fcs1_units) 
 
-    
-        self.state_hidden_layers = self.build_leg(state_size, hidden_layer_state_leg)
-        self.action_hidden_layers = self.build_leg(action_size, hidden_layer_actions_leg)
+        self.fc2 = nn.Linear(fcs1_units+action_size, fc2_units)
+        #self.fc2_batch_normalization = nn.BatchNorm1d(self.fc2.in_features) 
 
-        action_size_output = hidden_layer_actions_leg[-1] if len(hidden_layer_actions_leg)>0 else action_size
-        state_size_output = hidden_layer_state_leg[-1] if len(hidden_layer_state_leg)>0 else state_size
-        
-        self.head_layers = self.build_leg(action_size_output+state_size_output, hidden_layer_head)
-        # Add a variable number of more hidden layers
-        assert len(hidden_layer_head)>0
-        self.output = nn.Linear(hidden_layer_head[-1], 1)
+        self.fc3 = nn.Linear(fc2_units, 1)
+        # self.fc3_batch_normalization = nn.BatchNorm1d(self.fc3.in_features) 
 
-    def build_leg(self,input_size:int,hidden_layers:List[int]):
-        if len(hidden_layers) ==0:
-            return []
 
-        hidden_layers_list = nn.ModuleList(
-            [nn.Linear(input_size, hidden_layers[0])])
+        self.reset_parameters()
 
-        layer_sizes = zip(hidden_layers[:-1], hidden_layers[1:])
-        hidden_layers_list.extend([nn.Linear(h1, h2)
-                              for h1, h2 in layer_sizes])
+    def reset_parameters(self):
+        self.fcs1.weight.data.uniform_(*hidden_init(self.fcs1))
+        self.fc2.weight.data.uniform_(*hidden_init(self.fc2))
+        self.fc3.weight.data.uniform_(-3e-3, 3e-3)
 
-        return hidden_layers_list
+    def forward(self, state, action):
+        """Build a critic (value) network that maps (state, action) pairs -> Q-values."""
+        xs = F.relu(self.fcs1(state))
+        #xs = F.relu(self.fcs1(state))
+        xs = self.fcs1_batch_normalization(xs)
 
-    def forward(self, state,action):
-        """Build a network that maps state -> action values."""
-        for linear in self.state_hidden_layers:
-            state = F.relu(linear(state))
-
-        for linear in self.action_hidden_layers:
-            action = F.relu(linear(action))
-
-        state_action = torch.cat((state,action),dim=-1)
-
-        for linear in self.head_layers:
-            state_action = F.relu(linear(state_action))
-        return self.output(state_action)
-
-        
+        x = torch.cat((xs, action), dim=1)
+        x = F.relu(self.fc2(x))
+        return self.fc3(x)
