@@ -68,7 +68,9 @@ python -m ipykernel install --user --name drlnd --display-name "drlnd"
 
 ## Instructions for training agents.
 
-TODO
+You can use the AgentTrainer class in /trainer for training an agent with some hyperparameters. Please refer to the notebook Continuous_Control for an example of how to train it.
+
+The agent's weights will be stored in /weights. The agent's learning store (scores) will be stored in /results.
 
 ## Project results 
 
