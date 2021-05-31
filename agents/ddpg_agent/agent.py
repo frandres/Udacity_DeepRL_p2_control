@@ -19,6 +19,12 @@ LR_ACTOR = 2e-4         # learning rate of the actor
 LR_CRITIC = 2e-3        # learning rate of the critic
 WEIGHT_DECAY = 0        # L2 weight decay
 
+# Ou noise hyper params.
+
+STARTING_THETA_DEFAULT =0.20
+END_THETA_DEFAULT = 0.15
+FACTOR_THETA_DEFAULT =0.99
+
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 
@@ -63,24 +69,20 @@ class Agent():
         # Noise process
         self.noise = OUNoise(action_size, 
                              seed,
-                             starting_theta= hyperparams.get('starting_theta'),
-                             end_theta= hyperparams.get('end_theta'),
-                             factor_theta= hyperparams.get('factor_theta'))
-
-        self.beta_gen = annealing_generator(start=hyperparams['beta_start'],
-                                            end=hyperparams['beta_end'],
-                                            factor=hyperparams['beta_factor'])
+                             starting_theta= hyperparams.get('starting_theta',STARTING_THETA_DEFAULT),
+                             end_theta= hyperparams.get('end_theta',END_THETA_DEFAULT),
+                             factor_theta= hyperparams.get('factor_theta',FACTOR_THETA_DEFAULT))
         
         # Actor Network (w/ Target Network)
         self.actor_local = Actor(state_size, action_size, seed).to(device)
         self.actor_target = Actor(state_size, action_size, seed).to(device)
 
-        self.actor_optimizer = optim.Adam(self.actor_local.parameters())
+        self.actor_optimizer = optim.Adam(self.actor_local.parameters(),lr=hyperparams.get('actor_lr'))
         # Critic Network (w/ Target Network)
         self.critic_local = Critic(state_size, action_size, seed).to(device)
         self.critic_target = Critic(state_size, action_size, seed).to(device)
 
-        self.critic_optimizer = optim.Adam(self.critic_local.parameters())
+        self.critic_optimizer = optim.Adam(self.critic_local.parameters(),lr=hyperparams.get('critic_lr'))
 
         # Replay memory
         self.batch_size = hyperparams.get('batch_size') or DEFAULT_BATCH_SIZE
@@ -210,11 +212,11 @@ class Agent():
 class OUNoise:
     """Ornstein-Uhlenbeck process."""
 
-    def __init__(self, size, seed, mu=0., starting_theta=None, end_theta= 0.15, factor_theta = None, sigma=0.2):
+    def __init__(self, size, seed, mu=0., starting_theta, end_theta, factor_theta, sigma=0.2):
         """Initialize parameters and noise process."""
         self.mu = mu * np.ones(size)
         self.theta = starting_theta
-        self.theta_gen = annealing_generator(starting_theta or 0.20,end_theta or 0.15, factor_theta or 0.999)
+        self.theta_gen = annealing_generator(starting_theta, end_theta, factor_theta)
         self.sigma = sigma
         self.seed = random.seed(seed)
         self.reset()
