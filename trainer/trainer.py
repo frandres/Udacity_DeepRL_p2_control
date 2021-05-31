@@ -30,7 +30,8 @@ class AgentTrainer():
         return next_state, reward, done
 
     def train_agent(self,
-                    agent: Agent):
+                    agent: Agent,
+                    hyperparams):
         """Deep Q-Learning.
 
         Params
