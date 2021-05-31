@@ -71,7 +71,8 @@ class Agent():
                              seed,
                              starting_theta= hyperparams.get('starting_theta',STARTING_THETA_DEFAULT),
                              end_theta= hyperparams.get('end_theta',END_THETA_DEFAULT),
-                             factor_theta= hyperparams.get('factor_theta',FACTOR_THETA_DEFAULT))
+                             factor_theta= hyperparams.get('factor_theta',FACTOR_THETA_DEFAULT),
+                             noise_func=hyperparams['noise_generation_function'],)
         
         # Actor Network (w/ Target Network)
         self.actor_local = Actor(state_size, action_size, seed,do_batch_norm=hyperparams['do_batch_norm']).to(device)
@@ -135,7 +136,6 @@ class Agent():
             output_actions = self.actor_local(state).cpu().data.numpy()
         self.actor_local.train()
         if training:
-            self.beta = next(self.beta_gen)
             output_actions += self.noise.sample()
         
         return np.clip(output_actions,-1,1)
@@ -213,11 +213,12 @@ class Agent():
 class OUNoise:
     """Ornstein-Uhlenbeck process."""
 
-    def __init__(self, size, seed, mu=0., starting_theta, end_theta, factor_theta, sigma=0.2):
+    def __init__(self, size, seed, starting_theta, end_theta, factor_theta, noise_func,sigma=0.2,mu=0.):
         """Initialize parameters and noise process."""
         self.mu = mu * np.ones(size)
         self.theta = starting_theta
         self.theta_gen = annealing_generator(starting_theta, end_theta, factor_theta)
+        self.noise_func = noise_func
         self.sigma = sigma
         self.seed = random.seed(seed)
         self.reset()
@@ -231,7 +232,7 @@ class OUNoise:
     def sample(self):
         """Update internal state and return it as a noise sample."""
         x = self.state
-        dx = self.theta * (self.mu - x) + self.sigma * 2* np.array([random.random()-0.5 for i in range(len(x))])
+        dx = self.theta * (self.mu - x) + self.sigma * np.array([self.noise_func() for i in range(len(x))])
         self.state = x + dx
         return self.state
 
