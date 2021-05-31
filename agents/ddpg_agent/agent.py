@@ -78,12 +78,12 @@ class Agent():
         self.actor_local = Actor(state_size, action_size, seed,do_batch_norm=hyperparams['do_batch_norm']).to(device)
         self.actor_target = Actor(state_size, action_size, seed,do_batch_norm=hyperparams['do_batch_norm']).to(device)
 
-        self.actor_optimizer = optim.Adam(self.actor_local.parameters(),lr=hyperparams.get('actor_lr'))
+        self.actor_optimizer = optim.Adam(self.actor_local.parameters())
         # Critic Network (w/ Target Network)
         self.critic_local = Critic(state_size, action_size, seed,do_batch_norm=hyperparams['do_batch_norm']).to(device)
         self.critic_target = Critic(state_size, action_size, seed,do_batch_norm=hyperparams['do_batch_norm']).to(device)
 
-        self.critic_optimizer = optim.Adam(self.critic_local.parameters(),lr=hyperparams.get('critic_lr'))
+        self.critic_optimizer = optim.Adam(self.critic_local.parameters())
 
         # Replay memory
         self.batch_size = hyperparams.get('batch_size') or DEFAULT_BATCH_SIZE
