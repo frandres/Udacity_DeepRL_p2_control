@@ -71,13 +71,13 @@ class AgentTrainer():
                 solved = True
                 print('Env solved in {:d} episodes! Avg Score: {:.2f}'.format(
                     i_episode-100, np.mean(scores_window)))
+                break
 
-        self.scores = scores
-
+        self.save_scores( hyperparams, f'''./{hyperparams['description']}''',scores)
         return agent
 
-    def save_scores(self, hyperparams, filename):
-        obj = {'scores': self.scores,
+    def save_scores(self, hyperparams, filename,scores):
+        obj = {'scores': scores,
                'hyperparams': hyperparams}
 
         with open(filename, 'wb') as f:
