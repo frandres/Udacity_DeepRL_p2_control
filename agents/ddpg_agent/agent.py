@@ -63,7 +63,11 @@ class Agent():
         self.seed = random.seed(seed)
         
         # Noise process
-        self.noise = OUNoise(action_size, seed)
+        self.noise = OUNoise(action_size, 
+                             seed,
+                             starting_theta= hyperparams.get('starting_theta'),
+                             end_theta= hyperparams.get('end_theta'),
+                             factor_theta= hyperparams.get('factor_theta'))
 
         self.beta_gen = annealing_generator(start=hyperparams['beta_start'],
                                             end=hyperparams['beta_end'],
@@ -256,11 +260,11 @@ class Agent():
 class OUNoise:
     """Ornstein-Uhlenbeck process."""
 
-    def __init__(self, size, seed, mu=0., starting_theta=0.2, sigma=0.2):
+    def __init__(self, size, seed, mu=0., starting_theta=None, end_theta= 0.15, factor_theta = None, sigma=0.2):
         """Initialize parameters and noise process."""
         self.mu = mu * np.ones(size)
         self.theta = starting_theta
-        self.theta_gen = annealing_generator(starting_theta,0.15,0.999)
+        self.theta_gen = annealing_generator(starting_theta or 0.20,end_theta or 0.15, factor_theta or 0.999)
         self.sigma = sigma
         self.seed = random.seed(seed)
         self.reset()
@@ -274,7 +278,7 @@ class OUNoise:
     def sample(self):
         """Update internal state and return it as a noise sample."""
         x = self.state
-        dx = self.theta * (self.mu - x) + self.sigma * np.array([random.random()-0.5 for i in range(len(x))])
+        dx = self.theta * (self.mu - x) + self.sigma * 2* np.array([random.random()-0.5 for i in range(len(x))])
         self.state = x + dx
         return self.state
 
