@@ -65,7 +65,7 @@ class Agent():
         self.state_size = state_size
         self.action_size = action_size
         self.seed = random.seed(seed)
-        
+        self.do_gradient_clipping_critic = hyperparams['do_gradient_clipping_critic']
         # Noise process
         self.noise = OUNoise(action_size, 
                              seed,
@@ -74,13 +74,13 @@ class Agent():
                              factor_theta= hyperparams.get('factor_theta',FACTOR_THETA_DEFAULT))
         
         # Actor Network (w/ Target Network)
-        self.actor_local = Actor(state_size, action_size, seed).to(device)
-        self.actor_target = Actor(state_size, action_size, seed).to(device)
+        self.actor_local = Actor(state_size, action_size, seed,do_batch_norm=hyperparams['do_batch_norm']).to(device)
+        self.actor_target = Actor(state_size, action_size, seed,do_batch_norm=hyperparams['do_batch_norm']).to(device)
 
         self.actor_optimizer = optim.Adam(self.actor_local.parameters(),lr=hyperparams.get('actor_lr'))
         # Critic Network (w/ Target Network)
-        self.critic_local = Critic(state_size, action_size, seed).to(device)
-        self.critic_target = Critic(state_size, action_size, seed).to(device)
+        self.critic_local = Critic(state_size, action_size, seed,do_batch_norm=hyperparams['do_batch_norm']).to(device)
+        self.critic_target = Critic(state_size, action_size, seed,do_batch_norm=hyperparams['do_batch_norm']).to(device)
 
         self.critic_optimizer = optim.Adam(self.critic_local.parameters(),lr=hyperparams.get('critic_lr'))
 
@@ -170,7 +170,8 @@ class Agent():
         
         self.critic_optimizer.zero_grad()
         critic_loss.backward()
-        torch.nn.utils.clip_grad_norm(self.critic_local.parameters(), 1)
+        if self.do_gradient_clipping_critic:
+            torch.nn.utils.clip_grad_norm(self.critic_local.parameters(), 1)
         self.critic_optimizer.step()
 
         # 3) Optimize the actor.
