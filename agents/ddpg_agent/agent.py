@@ -15,8 +15,8 @@ DEFAULT_BATCH_SIZE = 128         # minibatch size
 GAMMA = 0.99            # discount factor
 TAU = 1e-3              # for soft update of target parameters
 UPDATE_EVERY = 4       # how often to update the network
-LR_ACTOR = 2e-4         # learning rate of the actor 
-LR_CRITIC = 2e-3        # learning rate of the critic
+LR_ACTOR = 1e-4         # learning rate of the actor 
+LR_CRITIC = 1e-3        # learning rate of the critic
 WEIGHT_DECAY = 0        # L2 weight decay
 
 # Ou noise hyper params.
@@ -83,7 +83,7 @@ class Agent():
         self.critic_local = Critic(state_size, action_size, seed,do_batch_norm=hyperparams['do_batch_norm']).to(device)
         self.critic_target = Critic(state_size, action_size, seed,do_batch_norm=hyperparams['do_batch_norm']).to(device)
 
-        self.critic_optimizer = optim.Adam(self.critic_local.parameters())
+        self.critic_optimizer = optim.Adam(self.critic_local.parameters(), lr = LR_CRITIC)
 
         # Replay memory
         self.batch_size = hyperparams.get('batch_size') or DEFAULT_BATCH_SIZE
